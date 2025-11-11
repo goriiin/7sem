@@ -1,0 +1,141 @@
+% lr3_variant11_fixed_params.m — вариант без глобалей с явной передачей параметров
+clear; clc; close all;
+
+% 1) Сетап и генерация временного ряда
+a = 0; b = 5;
+n = 500;
+h = (b - a) / n;
+t = a:h:b;
+y = func(t);
+
+% 2) Центральные производные O(h^2)
+y1 = zeros(size(y));  % dy/dt
+y2 = zeros(size(y));  % d2y/dt2
+y3 = zeros(size(y));  % d3y/dt3
+
+y1(2:end-1) = (y(3:end) - y(1:end-2)) / (2*h);
+y1(1) = (y(2) - y(1)) / h;
+y1(end) = (y(end) - y(end-1)) / h;
+
+y2(2:end-1) = (y1(3:end) - y1(1:end-2)) / (2*h);
+y2(1) = (y1(2) - y1(1)) / h;
+y2(end) = (y1(end) - y1(end-1)) / h;
+
+y3(2:end-1) = (y2(3:end) - y2(1:end-2)) / (2*h);
+y3(1) = (y2(2) - y2(1)) / h;
+y3(end) = (y2(end) - y2(end-1)) / h;
+
+% 3) Формирование обучающей выборки (делаем столбцы!)
+m   = 200;
+idx = round(linspace(1, numel(t), m));
+x1  = y(idx).';      % m x 1
+x2v = y1(idx).';     % m x 1
+x3v = y2(idx).';     % m x 1
+x4v = y3(idx).';     % m x 1
+
+% 4) Нормализация (как было)
+mu = [mean(x1) mean(x2v) mean(x3v)];
+sg = [std(x1)  std(x2v)  std(x3v)];
+sg(sg < eps) = 1;
+
+X1 = (x1 - mu(1)) / sg(1);
+X2 = (x2v - mu(2)) / sg(2);
+X3 = (x3v - mu(3)) / sg(3);
+
+% 5) Построение A (m x 20)
+A = zeros(m, 20);
+for i = 1:m
+    a1 = X1(i); a2 = X2(i); a3 = X3(i);
+    A(i,:) = [1, a1, a2, a3, a1*a2, a2*a3, a1*a3, a1^2, a2^2, a3^2, ...
+              a1*a2*a3, a1^2*a2, a1^2*a3, a1*a2^2, a2^2*a3, a1*a3^2, a2*a3^2, ...
+              a1^3, a2^3, a3^3];
+end
+
+% 6) Решение (любой из вариантов ниже корректен по размерностям):
+C = lsqminnorm(A, x4v);      % предпочтительно для МНК минимум-нормы
+% C = pinv(A) * x4v;         % работает, если x4v — столбец m x 1
+% C = A \ x4v;               % МНК-решение для прямоугольной A
+
+
+% 7) Пакуем параметры для правой части
+params.C = C(:);
+params.mu = mu(:);
+params.sg = sg(:);
+
+% 8) Интегрирование ODE с передачей параметров через анонимную функцию
+x0 = [x1(1); x2v(1); x3v(1)];
+odefun = @(tt, xx) systema_poly(tt, xx, params);
+[~, sol] = ode45(odefun, t, x0);
+
+Y  = sol(:,1);
+Y1 = sol(:,2);
+
+% 9) Графики
+figure('Position', [100,100,1200,400]);
+subplot(1,2,1);
+plot(t, y, '-b', 'LineWidth', 1.5); hold on;
+plot(t, Y, '--r', 'LineWidth', 1.5);
+grid on; xlabel('t'); ylabel('y(t)');
+title('Оригинальная vs моделируемая');
+legend('Оригинальная','Моделируемая','Location','best');
+
+subplot(1,2,2);
+plot(y, y1, '-b', 'LineWidth', 1.5); hold on;
+plot(Y, Y1, '--r', 'LineWidth', 1.5);
+grid on; xlabel('x_1'); ylabel('x_2');
+title('Фазовые портреты: (y,dy/dt) vs (Y,dY/dt)');
+legend('Оригинальная','Моделируемая','Location','best');
+
+% 10) Метрики
+mse = mean((y' - Y).^2);
+mae = mean(abs(y' - Y));
+fprintf('MSE = %.6f, MAE = %.6f, RelErr = %.2f%%\n', mse, mae, 100*mae/mean(abs(y)));
+
+% ---------- ЛОКАЛЬНЫЕ ФУНКЦИИ ----------
+function yy = func(x)
+    yy = 2*sin(x) + x.^3;
+end
+
+function f = systema_poly(~, x, params)
+    % x = [x1; x2; x3]
+    X1 = (x(1) - params.mu(1)) / params.sg(1);
+    X2 = (x(2) - params.mu(2)) / params.sg(2);
+    X3 = (x(3) - params.mu(3)) / params.sg(3);
+
+    phi = [ ...
+        1, ...
+        X1, X2, X3, ...
+        X1*X2, X2*X3, X1*X3, ...
+        X1^2, X2^2, X3^2, ...
+        X1*X2*X3, ...
+        X1^2*X2, X1^2*X3, X1*X2^2, X2^2*X3, X1*X3^2, X2*X3^2, ...
+        X1^3, X2^3, X3^3 ...
+    ].';
+
+    f1 = x(2);
+    f2 = x(3);
+    f3 = phi.' * params.C;
+    f  = [f1; f2; f3];
+end
+
+% === ВЫВОД В КОМАНДНОЕ ОКНО ===
+format long g;
+
+% 1) Коэффициенты C
+fprintf('\nЗначения коэффициентов C (всего %d):\n', numel(C));
+for k = 1:numel(C)
+    fprintf('C(%2d) = %+0.12e\n', k, C(k));
+end
+
+% 2) Решение ОДУ: таблица t, x1, x2, x3 (все точки)
+fprintf('\nРешение дифференциальных уравнений (все точки):\n');
+fprintf('%12s %20s %20s %20s\n', 't', 'x1=y', 'x2=dy/dt', 'x3=d2y/dt2');
+for i = 1:numel(t)
+    fprintf('%12.6f %20.12e %20.12e %20.12e\n', t(i), sol(i,1), sol(i,2), sol(i,3));
+end
+
+% Дополнительно: компактный вывод как таблицы (удобно просматривать)
+T = table(t(:), sol(:,1), sol(:,2), sol(:,3), ...
+          'VariableNames', {'t','x1','x2','x3'});
+disp('Табличный вид решения (первые строки показаны в окне, вся таблица доступна прокруткой):');
+disp(T);
