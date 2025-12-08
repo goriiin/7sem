@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/ui/button.tsx';
 import {
     Dialog,
     DialogContent,
@@ -8,11 +8,11 @@ import {
     DialogHeader,
     DialogTitle,
     DialogTrigger,
-} from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+} from '@/components/ui/dialog.tsx';
+import { Input } from '@/components/ui/input.tsx';
+import { Label } from '@/components/ui/label.tsx';
 import { Upload, Loader2 } from 'lucide-react';
-import { toast } from '@/hooks/use-toast';
+import { toast } from '@/hooks/use-toast.ts';
 
 export const UploadTrackDialog = () => {
     const [open, setOpen] = useState(false);
@@ -22,13 +22,14 @@ export const UploadTrackDialog = () => {
     const [title, setTitle] = useState('');
     const [artist, setArtist] = useState('');
     const [file, setFile] = useState<File | null>(null);
+    const [cover, setCover] = useState<File | null>(null);
 
     const handleUpload = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!title || !artist || !file) {
             toast({
                 title: "Validation Error",
-                description: "Please fill in all fields and select a file.",
+                description: "Please fill in title, artist, and select an audio file.",
                 variant: "destructive"
             });
             return;
@@ -45,6 +46,7 @@ export const UploadTrackDialog = () => {
             setTitle('');
             setArtist('');
             setFile(null);
+            setCover(null);
 
             toast({
                 title: "Success",
@@ -56,9 +58,9 @@ export const UploadTrackDialog = () => {
     return (
         <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-                <Button className="gap-2">
+                <Button variant="outline" className="w-full justify-start gap-2 h-10 px-4 font-normal">
                     <Upload className="h-4 w-4" />
-                    Upload Track
+                    Загрузить трек
                 </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-[425px]">
@@ -95,14 +97,26 @@ export const UploadTrackDialog = () => {
                             />
                         </div>
                         <div className="grid grid-cols-4 items-center gap-4">
-                            <Label htmlFor="file" className="text-right">
-                                File
+                            <Label htmlFor="audio-file" className="text-right">
+                                Audio
                             </Label>
                             <Input
-                                id="file"
+                                id="audio-file"
                                 type="file"
                                 accept="audio/*"
                                 onChange={(e) => setFile(e.target.files ? e.target.files[0] : null)}
+                                className="col-span-3 cursor-pointer"
+                            />
+                        </div>
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label htmlFor="cover-file" className="text-right">
+                                Cover (Opt)
+                            </Label>
+                            <Input
+                                id="cover-file"
+                                type="file"
+                                accept="image/*"
+                                onChange={(e) => setCover(e.target.files ? e.target.files[0] : null)}
                                 className="col-span-3 cursor-pointer"
                             />
                         </div>
