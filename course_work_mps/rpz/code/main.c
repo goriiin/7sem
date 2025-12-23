@@ -28,7 +28,6 @@
 #define DHT_PIN_IN PIND
 
 // КНОПКИ (PORTA)
-// ВАЖНО: Для работы INT0, эти кнопки должны быть также электрически связаны с PD2 через диоды!
 #define BTN_PORT   PORTA
 #define BTN_PIN    PINA
 #define BTN_DDR    DDRA
@@ -45,8 +44,6 @@
 #define LCD_DDR    DDRC
 #define LCD_RS     PC2 
 #define LCD_E      PC3
-
-// -----------------------
 
 // eeprom
 #define EE_MAGIC_VAL 0xAC 
@@ -205,25 +202,17 @@ void set_motor(uint8_t state) {
 // --- ОБРАБОТЧИК ПРЕРЫВАНИЯ КНОПОК INT0 ---
 
 void init_int0(void) {
-    // Настраиваем PD2 (INT0) на вход с подтяжкой
     DDRD &= ~(1 << INT0_PIN);
     PORTD |= (1 << INT0_PIN);
 
-    // Настройка прерывания: Falling Edge (спадающий фронт - нажатие кнопки)
-    // ISC01 = 1, ISC00 = 0 в регистре MCUCR
     MCUCR |= (1 << ISC01);
     MCUCR &= ~(1 << ISC00);
 
-    // Разрешаем внешнее прерывание INT0
     GICR |= (1 << INT0);
 }
 
 ISR(INT0_vect) {
-    // Простой программный антидребезг прямо в прерывании
     _delay_ms(30); 
-
-    // Проверяем, какая кнопка нажата на PORTA
-    // (Логика нажатия: 0 на пине)
 
     // Кнопка AUTO
     if (!(BTN_PIN & (1 << BTN_AUTO))) {
@@ -236,7 +225,7 @@ ISR(INT0_vect) {
     else if (!(BTN_PIN & (1 << BTN_TOGGLE))) {
         mode_auto = 0; 
         eeprom_update_byte(&ee_mode_auto, 0);
-        set_motor(!fan_on); // Переключаем состояние
+        set_motor(!fan_on);
         uart_send_str_P(PSTR("INT: Toggle Man\r\n"));
         update_lcd_needed = 1;
     }
@@ -263,11 +252,7 @@ ISR(INT0_vect) {
         update_lcd_needed = 1;
     }
 
-    // Ждем, пока кнопка будет отпущена, чтобы не вызывать прерывание повторно слишком часто 
-    // (опционально, но полезно для предотвращения дребезга при отпускании)
-    // while(!(PIND & (1 << INT0_PIN))); 
-    
-    // Очистка флага INTF0 происходит автоматически при выходе из ISR
+    while(!(PIND & (1 << INT0_PIN))); 
 }
 
 // --- DHT ДАТЧИК ---
@@ -313,17 +298,13 @@ void update_lcd_info(void) {
     }
 }
 
-// --- MAIN ---
-
 int main(void) {
     MOTOR_DDR |= (1 << IN1_PIN) | (1 << IN2_PIN); 
     PWM_DDR |= (1 << PWM_PIN); 
     
-    // Fast PWM
     TCCR0 = (1 << WGM00) | (1 << WGM01) | (1 << COM01) | (1 << CS01); 
     OCR0 = 0;
 
-    // Настройка кнопок на вход с подтяжкой (PORTA)
     BTN_DDR &= ~((1 << BTN_AUTO) | (1 << BTN_TOGGLE) | (1 << BTN_UP) | (1 << BTN_DOWN)); 
     BTN_PORT |= (1 << BTN_AUTO) | (1 << BTN_TOGGLE) | (1 << BTN_UP) | (1 << BTN_DOWN);
 
@@ -333,10 +314,9 @@ int main(void) {
     
     set_motor(fan_on); 
     
-    // ИНИЦИАЛИЗАЦИЯ ПРЕРЫВАНИЯ КНОПОК
     init_int0();
 
-    sei(); // Разрешить глобальные прерывания
+    sei();
 
     uart_send_str_P(PSTR("System Ready (INT0 Mode)\r\n"));
     lcd_cmd(0x01); lcd_gotoxy(0, 0); lcd_str_P(PSTR("System Ready"));
@@ -344,9 +324,7 @@ int main(void) {
 
     uint8_t timer_ticks = 0;
 
-    // Главный цикл стал чище, так как кнопки обрабатываются в ISR
     while (1) {
-        // Обработка команд UART
         if (cmd_ready) {
             _delay_ms(5);
             char *cmd = (char*)rx_buffer;
@@ -397,7 +375,6 @@ int main(void) {
             cmd_ready = 0;
         }
 
-        // Таймер для опроса датчика и обновления экрана
         _delay_ms(100);
         timer_ticks++;
         if (timer_ticks >= 20) { // ~2 секунды
