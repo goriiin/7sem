@@ -8,22 +8,27 @@
 #include <stdlib.h>
 #include <string.h>
 
-// пины
+// --- НАСТРОЙКИ ПИНОВ ---
+
+// Моторы (PC0, PC1)
 #define MOTOR_PORT PORTC
 #define MOTOR_DDR  DDRC
 #define IN1_PIN    PC0
 #define IN2_PIN    PC1
 
+// ШИМ (PB0)
 #define PWM_PORT   PORTB
 #define PWM_DDR    DDRB
 #define PWM_PIN    PB0
 
+// Датчик DHT (PD7)
 #define DHT_PORT   PORTD
 #define DHT_DDR    DDRD
 #define DHT_PIN    PD7
 #define DHT_PIN_IN PIND
 
-// КНОПКИ
+// КНОПКИ (PORTA)
+// ВАЖНО: Для работы INT0, эти кнопки должны быть также электрически связаны с PD2 через диоды!
 #define BTN_PORT   PORTA
 #define BTN_PIN    PINA
 #define BTN_DDR    DDRA
@@ -32,11 +37,16 @@
 #define BTN_UP     PA2  
 #define BTN_DOWN   PA3 
 
-// lcd
-#define LCD_PORT   PORTB
-#define LCD_DDR    DDRB
-#define LCD_RS     PB2 
-#define LCD_E      PB3
+// Пин прерывания (для информации)
+#define INT0_PIN   PD2
+
+// LCD ЭКРАН (PC2-PC7)
+#define LCD_PORT   PORTC
+#define LCD_DDR    DDRC
+#define LCD_RS     PC2 
+#define LCD_E      PC3
+
+// -----------------------
 
 // eeprom
 #define EE_MAGIC_VAL 0xAC 
@@ -54,9 +64,9 @@ volatile uint8_t mode_auto = 1;
 volatile uint8_t temp_c = 0;
 volatile uint8_t humidity = 0;
 
-uint8_t temp_high = 23; 
-uint8_t temp_low = 21;  
-uint8_t fan_speed = 255; 
+volatile uint8_t temp_high = 23; 
+volatile uint8_t temp_low = 21;  
+volatile uint8_t fan_speed = 255; 
 
 // Буфер UART
 volatile char rx_buffer[20];
@@ -65,7 +75,8 @@ volatile uint8_t cmd_ready = 0;
 
 volatile uint8_t update_lcd_needed = 1;
 
-// lcd
+// --- ФУНКЦИИ LCD ---
+
 void lcd_pulse(void) {
     LCD_PORT |= (1 << LCD_E);
     _delay_us(5);
@@ -111,17 +122,24 @@ void lcd_init(void) {
     LCD_DDR |= (1 << LCD_RS) | (1 << LCD_E) | 0xF0; 
     _delay_ms(20);
     LCD_PORT &= ~(1 << LCD_RS);
+    
     LCD_PORT = (LCD_PORT & 0x0F) | 0x30; lcd_pulse(); _delay_ms(5);
     LCD_PORT = (LCD_PORT & 0x0F) | 0x30; lcd_pulse(); _delay_us(200);
     LCD_PORT = (LCD_PORT & 0x0F) | 0x30; lcd_pulse(); _delay_us(200);
-    LCD_PORT = (LCD_PORT & 0x0F) | 0x20; lcd_pulse(); _delay_ms(5);
-    lcd_cmd(0x28); lcd_cmd(0x0C); lcd_cmd(0x06); lcd_cmd(0x01);
+    LCD_PORT = (LCD_PORT & 0x0F) | 0x20; lcd_pulse(); _delay_ms(5); 
+    
+    lcd_cmd(0x28); 
+    lcd_cmd(0x0C); 
+    lcd_cmd(0x06); 
+    lcd_cmd(0x01); 
 }
 
 void lcd_gotoxy(uint8_t x, uint8_t y) {
     uint8_t addr = (y == 0) ? 0x80 : 0xC0;
     lcd_cmd(addr + x);
 }
+
+// --- КОНФИГУРАЦИЯ ---
 
 void load_config(void) {
     uint8_t magic = eeprom_read_byte(&ee_magic);
@@ -140,22 +158,19 @@ void load_config(void) {
     fan_speed = eeprom_read_byte(&ee_fan_speed);
 }
 
+// --- UART ---
+
 void uart_init_fixed(void) {
-    UBRRH = 0; UBRRL = 51; // 9600 for 8MHz
+    UBRRH = 0; UBRRL = 51; // 9600
     UCSRB = (1 << RXCIE) | (1 << RXEN) | (1 << TXEN);
     UCSRC = (1 << URSEL) | (1 << UCSZ1) | (1 << UCSZ0);
 }
 
 void uart_send_char(char c) { while (!(UCSRA & (1 << UDRE))); UDR = c; }
-
-// Функция отправки строки из RAM
 void uart_send_str(const char *s) { while (*s) uart_send_char(*s++); }
-
-// Функция отправки строки из FLASH
 void uart_send_str_P(const char *s) {
     while (pgm_read_byte(s)) uart_send_char(pgm_read_byte(s++));
 }
-
 void uart_send_num(int val) {
     char buf[10];
     itoa(val, buf, 10);
@@ -165,32 +180,100 @@ void uart_send_num(int val) {
 ISR(USART_RX_vect) {
     char data = UDR;
     if (data == '\r' || data == '\n') { 
-        rx_buffer[rx_pos] = 0; 
-        cmd_ready = 1; 
-        rx_pos = 0; 
-    }
-    else { 
+        rx_buffer[rx_pos] = 0; cmd_ready = 1; rx_pos = 0; 
+    } else { 
         if (rx_pos < 18) rx_buffer[rx_pos++] = data; 
     }
 }
+
+// --- УПРАВЛЕНИЕ МОТОРОМ ---
 
 void set_motor(uint8_t state) {
     fan_on = state;
     eeprom_update_byte(&ee_fan_on, state);
     if (state) {
-        MOTOR_PORT |= (1 << IN1_PIN); MOTOR_PORT &= ~(1 << IN2_PIN);
+        MOTOR_PORT |= (1 << IN1_PIN); 
+        MOTOR_PORT &= ~(1 << IN2_PIN);
         OCR0 = fan_speed;
     } else {
-        MOTOR_PORT &= ~((1 << IN1_PIN) | (1 << IN2_PIN)); OCR0 = 0;
+        MOTOR_PORT &= ~((1 << IN1_PIN) | (1 << IN2_PIN)); 
+        OCR0 = 0;
     }
     update_lcd_needed = 1;
 }
 
-uint8_t dht_read(void) {
-    uint8_t bits[5]; 
-    uint8_t cnt = 7; 
-    uint8_t idx = 0;
+// --- ОБРАБОТЧИК ПРЕРЫВАНИЯ КНОПОК INT0 ---
+
+void init_int0(void) {
+    // Настраиваем PD2 (INT0) на вход с подтяжкой
+    DDRD &= ~(1 << INT0_PIN);
+    PORTD |= (1 << INT0_PIN);
+
+    // Настройка прерывания: Falling Edge (спадающий фронт - нажатие кнопки)
+    // ISC01 = 1, ISC00 = 0 в регистре MCUCR
+    MCUCR |= (1 << ISC01);
+    MCUCR &= ~(1 << ISC00);
+
+    // Разрешаем внешнее прерывание INT0
+    GICR |= (1 << INT0);
+}
+
+ISR(INT0_vect) {
+    // Простой программный антидребезг прямо в прерывании
+    _delay_ms(30); 
+
+    // Проверяем, какая кнопка нажата на PORTA
+    // (Логика нажатия: 0 на пине)
+
+    // Кнопка AUTO
+    if (!(BTN_PIN & (1 << BTN_AUTO))) {
+        mode_auto = 1;
+        eeprom_update_byte(&ee_mode_auto, 1);
+        uart_send_str_P(PSTR("INT: AUTO Mode\r\n"));
+        update_lcd_needed = 1;
+    }
+    // Кнопка TOGGLE (Manual ON/OFF)
+    else if (!(BTN_PIN & (1 << BTN_TOGGLE))) {
+        mode_auto = 0; 
+        eeprom_update_byte(&ee_mode_auto, 0);
+        set_motor(!fan_on); // Переключаем состояние
+        uart_send_str_P(PSTR("INT: Toggle Man\r\n"));
+        update_lcd_needed = 1;
+    }
+    // Кнопка UP
+    else if (!(BTN_PIN & (1 << BTN_UP))) {
+        int new_speed = fan_speed + 25;
+        if (new_speed >= 255) new_speed = 255;
+        fan_speed = (uint8_t)new_speed;
+        eeprom_update_byte(&ee_fan_speed, fan_speed);
+        if (fan_on) OCR0 = fan_speed;
+        
+        uart_send_str_P(PSTR("INT: Speed UP: ")); uart_send_num(fan_speed); uart_send_str_P(PSTR("\r\n"));
+        update_lcd_needed = 1;
+    }
+    // Кнопка DOWN
+    else if (!(BTN_PIN & (1 << BTN_DOWN))) {
+        int new_speed = fan_speed - 25;
+        if (new_speed <= 0) new_speed = 0;
+        fan_speed = (uint8_t)new_speed;
+        eeprom_update_byte(&ee_fan_speed, fan_speed);
+        if (fan_on) OCR0 = fan_speed;
+        
+        uart_send_str_P(PSTR("INT: Speed DOWN: ")); uart_send_num(fan_speed); uart_send_str_P(PSTR("\r\n"));
+        update_lcd_needed = 1;
+    }
+
+    // Ждем, пока кнопка будет отпущена, чтобы не вызывать прерывание повторно слишком часто 
+    // (опционально, но полезно для предотвращения дребезга при отпускании)
+    // while(!(PIND & (1 << INT0_PIN))); 
     
+    // Очистка флага INTF0 происходит автоматически при выходе из ISR
+}
+
+// --- DHT ДАТЧИК ---
+
+uint8_t dht_read(void) {
+    uint8_t bits[5]; uint8_t cnt = 7; uint8_t idx = 0;
     for(int k=0; k<5; k++) bits[k] = 0;
 
     DHT_DDR |= (1 << DHT_PIN); DHT_PORT &= ~(1 << DHT_PIN); 
@@ -203,25 +286,14 @@ uint8_t dht_read(void) {
     for (int i = 0; i < 40; i++) {
         uint8_t timeout = 0;
         while(!(DHT_PIN_IN & (1 << DHT_PIN))) { _delay_us(1); if (++timeout > 100) return 3; }
-        
         _delay_us(30); 
-        
         if (DHT_PIN_IN & (1 << DHT_PIN)) {
-            if (idx < 5) {
-                bits[idx] |= (1 << cnt); 
-            }
+            if (idx < 5) bits[idx] |= (1 << cnt); 
             timeout = 0;
             while(DHT_PIN_IN & (1 << DHT_PIN)) { _delay_us(1); if (++timeout > 100) return 4; }
         }
-        
-        if (cnt == 0) { 
-            cnt = 7; 
-            idx++; 
-        } else { 
-            cnt--; 
-        }
+        if (cnt == 0) { cnt = 7; idx++; } else { cnt--; }
     }
-
     if ((uint8_t)(bits[0] + bits[1] + bits[2] + bits[3]) == bits[4]) {
         humidity = bits[0]; temp_c = bits[2]; return 0; 
     }
@@ -241,89 +313,40 @@ void update_lcd_info(void) {
     }
 }
 
+// --- MAIN ---
+
 int main(void) {
-    MOTOR_DDR |= (1 << IN1_PIN) | (1 << IN2_PIN);
-    PWM_DDR |= (1 << PWM_PIN);
+    MOTOR_DDR |= (1 << IN1_PIN) | (1 << IN2_PIN); 
+    PWM_DDR |= (1 << PWM_PIN); 
     
+    // Fast PWM
     TCCR0 = (1 << WGM00) | (1 << WGM01) | (1 << COM01) | (1 << CS01); 
     OCR0 = 0;
+
+    // Настройка кнопок на вход с подтяжкой (PORTA)
+    BTN_DDR &= ~((1 << BTN_AUTO) | (1 << BTN_TOGGLE) | (1 << BTN_UP) | (1 << BTN_DOWN)); 
+    BTN_PORT |= (1 << BTN_AUTO) | (1 << BTN_TOGGLE) | (1 << BTN_UP) | (1 << BTN_DOWN);
 
     uart_init_fixed();
     load_config();
     lcd_init();   
     
     set_motor(fan_on); 
-    sei();
-
-    uart_send_str_P(PSTR("Commands list:\r\n"));
-    uart_send_str_P(PSTR(" 0   : Turn OFF (Manual)\r\n"));
-    uart_send_str_P(PSTR(" 1   : Turn ON  (Manual)\r\n"));
-    uart_send_str_P(PSTR(" A   : Set AUTO Mode\r\n"));
-    uart_send_str_P(PSTR(" M   : Set MANUAL Mode\r\n"));
-    uart_send_str_P(PSTR(" s   : Check Status\r\n"));
-    uart_send_str_P(PSTR(" vN  : Set Speed (e.g. v150)\r\n"));
-    uart_send_str_P(PSTR(" hN  : Set Max Temp (e.g. h25)\r\n"));
-    uart_send_str_P(PSTR(" lN  : Set Min Temp (e.g. l20)\r\n"));
     
+    // ИНИЦИАЛИЗАЦИЯ ПРЕРЫВАНИЯ КНОПОК
+    init_int0();
+
+    sei(); // Разрешить глобальные прерывания
+
+    uart_send_str_P(PSTR("System Ready (INT0 Mode)\r\n"));
     lcd_cmd(0x01); lcd_gotoxy(0, 0); lcd_str_P(PSTR("System Ready"));
     _delay_ms(1000); lcd_cmd(0x01);
 
-    BTN_DDR &= ~((1 << BTN_AUTO) | (1 << BTN_TOGGLE) | (1 << BTN_UP) | (1 << BTN_DOWN)); 
-    BTN_PORT |= (1 << BTN_AUTO) | (1 << BTN_TOGGLE) | (1 << BTN_UP) | (1 << BTN_DOWN);
-
-    uint8_t btn_auto_prev = 1;
-    uint8_t btn_toggle_prev = 1;
-    uint8_t btn_up_prev = 1;
-    uint8_t btn_down_prev = 1;
     uint8_t timer_ticks = 0;
 
+    // Главный цикл стал чище, так как кнопки обрабатываются в ISR
     while (1) {
-        uint8_t btn_auto_now = (BTN_PIN & (1 << BTN_AUTO));
-        uint8_t btn_toggle_now = (BTN_PIN & (1 << BTN_TOGGLE));
-        uint8_t btn_up_now = (BTN_PIN & (1 << BTN_UP));
-        uint8_t btn_down_now = (BTN_PIN & (1 << BTN_DOWN));
-
-        if (!btn_auto_now && btn_auto_prev) {
-            mode_auto = 1;
-            eeprom_update_byte(&ee_mode_auto, 1);
-            uart_send_str_P(PSTR("Btn: AUTO Mode\r\n"));
-            update_lcd_needed = 1;
-        }
-
-        if (!btn_toggle_now && btn_toggle_prev) {
-            mode_auto = 0; eeprom_update_byte(&ee_mode_auto, 0);
-            set_motor(!fan_on);
-            uart_send_str_P(PSTR("Btn: Manual\r\n"));
-            update_lcd_needed = 1;
-        }
-
-        if (!btn_up_now && btn_up_prev) {
-            int new_speed = fan_speed + 25;
-            if (new_speed >= 255) new_speed = 255;
-            fan_speed = (uint8_t)new_speed;
-            eeprom_update_byte(&ee_fan_speed, fan_speed);
-            if (fan_on) OCR0 = fan_speed;
-            
-            uart_send_str_P(PSTR("Speed UP: ")); uart_send_num(fan_speed); uart_send_str_P(PSTR("\r\n"));
-            update_lcd_needed = 1;
-        }
-
-        if (!btn_down_now && btn_down_prev) {
-            int new_speed = fan_speed - 25;
-            if (new_speed <= 0) new_speed = 0;
-            fan_speed = (uint8_t)new_speed;
-            eeprom_update_byte(&ee_fan_speed, fan_speed);
-            if (fan_on) OCR0 = fan_speed;
-            
-            uart_send_str_P(PSTR("Speed DOWN: ")); uart_send_num(fan_speed); uart_send_str_P(PSTR("\r\n"));
-            update_lcd_needed = 1;
-        }
-
-        btn_auto_prev = btn_auto_now;
-        btn_toggle_prev = btn_toggle_now;
-        btn_up_prev = btn_up_now;
-        btn_down_prev = btn_down_now;
-     
+        // Обработка команд UART
         if (cmd_ready) {
             _delay_ms(5);
             char *cmd = (char*)rx_buffer;
@@ -354,50 +377,30 @@ int main(void) {
                     fan_speed = val; 
                     eeprom_update_byte(&ee_fan_speed, val); 
                     if(fan_on) OCR0 = fan_speed; 
-                    uart_send_str_P(PSTR("Speed Saved: ")); uart_send_num(fan_speed); uart_send_str_P(PSTR("\r\n"));
                     update_lcd_needed = 1;
                 } 
             }
             else if (cmd[0] == 'H' || cmd[0] == 'h') { 
                 int val = atoi(&cmd[1]); 
                 if (val > temp_low && val < 99) { 
-                    temp_high = val; 
-                    eeprom_update_byte(&ee_temp_high, val); 
-                    uart_send_str_P(PSTR("[CMD] High Saved: ")); uart_send_num(val); uart_send_str_P(PSTR("\r\n"));
+                    temp_high = val; eeprom_update_byte(&ee_temp_high, val); 
                     update_lcd_needed = 1; 
-                } else {
-                    uart_send_str_P(PSTR("[ERR] High must be > Low (")); 
-                    uart_send_num(temp_low); 
-                    uart_send_str_P(PSTR(")\r\n"));
                 }
             }
             else if (cmd[0] == 'L' || cmd[0] == 'l') { 
                 int val = atoi(&cmd[1]); 
                 if (val > 0 && val < temp_high) { 
-                    temp_low = val; 
-                    eeprom_update_byte(&ee_temp_low, val); 
-                    uart_send_str_P(PSTR("[CMD] Low Saved: ")); uart_send_num(val); uart_send_str_P(PSTR("\r\n"));
+                    temp_low = val; eeprom_update_byte(&ee_temp_low, val); 
                     update_lcd_needed = 1; 
-                } else {
-                    uart_send_str_P(PSTR("[ERR] Low must be < High (")); 
-                    uart_send_num(temp_high); 
-                    uart_send_str_P(PSTR(")\r\n"));
                 }
-            }
-            else if (cmd[0] == 'S' || cmd[0] == 's') {
-                uart_send_str_P(PSTR("STAT: T=")); uart_send_num(temp_c);
-                uart_send_str_P(PSTR(" H=")); uart_send_num(humidity);
-                uart_send_str_P(PSTR("% F=")); uart_send_num(fan_on);
-                uart_send_str_P(PSTR(" Spd=")); uart_send_num(fan_speed);
-                uart_send_str_P(PSTR(" Mode=")); uart_send_str_P(mode_auto ? PSTR("AUTO") : PSTR("MAN"));
-                uart_send_str_P(PSTR("\r\n"));
             }
             cmd_ready = 0;
         }
 
+        // Таймер для опроса датчика и обновления экрана
         _delay_ms(100);
         timer_ticks++;
-        if (timer_ticks >= 20) {
+        if (timer_ticks >= 20) { // ~2 секунды
             timer_ticks = 0;
             if (dht_read() == 0) {
                 update_lcd_needed = 1;
