@@ -1,7 +1,10 @@
 #import "@local/gost732-2017:0.4.2": *
+#import "@local/bmstu:0.3.0": *
 
 #show: гост732-2017
 
+#страница(image("titul.jpeg", height: 100%), номер: нет)
+#страница(image("tak.png", height: 100%), номер: нет)
 #содержание()
 
 #include "sections/0-intro.typ"
