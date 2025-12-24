@@ -36,7 +36,6 @@
 #define BTN_UP     PA2  
 #define BTN_DOWN   PA3 
 
-// Пин прерывания (для информации)
 #define INT0_PIN   PD2
 
 // LCD ЭКРАН (PC2-PC7)
@@ -73,7 +72,6 @@ volatile uint8_t cmd_ready = 0;
 volatile uint8_t update_lcd_needed = 1;
 
 // --- ФУНКЦИИ LCD ---
-
 void lcd_pulse(void) {
     LCD_PORT |= (1 << LCD_E);
     _delay_us(5);
@@ -135,9 +133,6 @@ void lcd_gotoxy(uint8_t x, uint8_t y) {
     uint8_t addr = (y == 0) ? 0x80 : 0xC0;
     lcd_cmd(addr + x);
 }
-
-// --- КОНФИГУРАЦИЯ ---
-
 void load_config(void) {
     uint8_t magic = eeprom_read_byte(&ee_magic);
     if (magic != EE_MAGIC_VAL) {
@@ -377,7 +372,7 @@ int main(void) {
 
         _delay_ms(100);
         timer_ticks++;
-        if (timer_ticks >= 20) { // ~2 секунды
+        if (timer_ticks >= 20) {
             timer_ticks = 0;
             if (dht_read() == 0) {
                 update_lcd_needed = 1;

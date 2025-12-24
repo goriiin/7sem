@@ -14,4 +14,8 @@
 
 #bibliography("bib.yaml")
 
-#include "sections/5-code.typ"
+#include "sections/5-A.typ"
+#include "sections/5-B.typ"
+
+#include "sections/5-C.typ"
+#include "sections/5-D.typ"
