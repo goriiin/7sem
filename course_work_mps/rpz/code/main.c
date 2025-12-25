@@ -1,5 +1,3 @@
-#define F_CPU 8000000UL
-
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <avr/eeprom.h> 
@@ -7,8 +5,6 @@
 #include <util/delay.h>
 #include <stdlib.h>
 #include <string.h>
-
-// --- НАСТРОЙКИ ПИНОВ ---
 
 // Моторы (PC0, PC1)
 #define MOTOR_PORT PORTC
@@ -151,7 +147,6 @@ void load_config(void) {
 }
 
 // --- UART ---
-
 void uart_init_fixed(void) {
     UBRRH = 0; UBRRL = 51; // 9600
     UCSRB = (1 << RXCIE) | (1 << RXEN) | (1 << TXEN);
@@ -160,9 +155,7 @@ void uart_init_fixed(void) {
 
 void uart_send_char(char c) { while (!(UCSRA & (1 << UDRE))); UDR = c; }
 void uart_send_str(const char *s) { while (*s) uart_send_char(*s++); }
-void uart_send_str_P(const char *s) {
-    while (pgm_read_byte(s)) uart_send_char(pgm_read_byte(s++));
-}
+void uart_send_str_P(const char *s) {while (pgm_read_byte(s)) uart_send_char(pgm_read_byte(s++));}
 void uart_send_num(int val) {
     char buf[10];
     itoa(val, buf, 10);
@@ -179,7 +172,6 @@ ISR(USART_RX_vect) {
 }
 
 // --- УПРАВЛЕНИЕ МОТОРОМ ---
-
 void set_motor(uint8_t state) {
     fan_on = state;
     eeprom_update_byte(&ee_fan_on, state);
@@ -195,7 +187,6 @@ void set_motor(uint8_t state) {
 }
 
 // --- ОБРАБОТЧИК ПРЕРЫВАНИЯ КНОПОК INT0 ---
-
 void init_int0(void) {
     DDRD &= ~(1 << INT0_PIN);
     PORTD |= (1 << INT0_PIN);
@@ -251,7 +242,6 @@ ISR(INT0_vect) {
 }
 
 // --- DHT ДАТЧИК ---
-
 uint8_t dht_read(void) {
     uint8_t bits[5]; uint8_t cnt = 7; uint8_t idx = 0;
     for(int k=0; k<5; k++) bits[k] = 0;

@@ -5,7 +5,7 @@
 #show: приложение.with(буква: "Б", содержание: [ Функциональная электрическая схема ])
 
 #страница(
- image("/assets/princ.jpg", width: 100%, fit: "cover"),
+ image("/pics/princ.jpg", width: 100%, fit: "cover"),
   повернуто: да,
   формат: "a3",
   номер: нет

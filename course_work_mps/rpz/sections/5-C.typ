@@ -6,13 +6,13 @@
 
 
 #страница(
-   image("/assets/spisok1.jpg", width: 100%, fit: "cover"),
+   image("/pics/spisok1.jpg", width: 100%, fit: "cover"),
    повернуто: нет,
    формат: "a4",
   номер: нет
 )
 #страница(
-   image("/assets/spisok2.jpg", width: 100%, fit: "cover"),
+   image("/pics/spisok2.jpg", width: 100%, fit: "cover"),
    повернуто: нет,
    формат: "a4",
   номер: нет
